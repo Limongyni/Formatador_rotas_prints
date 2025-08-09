@@ -135,7 +135,9 @@ def processar_blocos(blocos):
             "Total de Pacotes": pacotes
         })
 
-    return pd.DataFrame(resultados)
+    # Garante que as colunas existam, mesmo se resultados estiver vazio
+    colunas_padrao = ["Parada", "Address Line", "Secondary Address Line", "City", "State", "Zip Code", "Total de Pacotes"]
+    return pd.DataFrame(resultados, columns=colunas_padrao)
 
 def ordenar_por_parada(df):
     def extrair_num(parada):
@@ -149,7 +151,11 @@ def ordenar_por_parada(df):
 
 st.title("Extração de Dados OCR - Rotas")
 
-uploaded_files = st.file_uploader("Selecione as imagens da rota", type=["jpg", "jpeg", "png", "webp", "tiff", "bmp"], accept_multiple_files=True)
+uploaded_files = st.file_uploader(
+    "Selecione as imagens da rota",
+    type=["jpg", "jpeg", "png", "webp", "tiff", "bmp"],
+    accept_multiple_files=True
+)
 
 if uploaded_files:
     df_geral = []
@@ -165,7 +171,10 @@ if uploaded_files:
 
     if df_geral:
         df_final = pd.concat(df_geral, ignore_index=True)
-        df_final = ordenar_por_parada(df_final)
+
+        # Ordena apenas se houver alguma parada preenchida
+        if df_final['Parada'].notna().any() and df_final['Parada'].str.strip().any():
+            df_final = ordenar_por_parada(df_final)
 
         st.success("✅ Dados extraídos:")
         st.dataframe(df_final)
