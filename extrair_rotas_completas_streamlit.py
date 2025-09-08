@@ -45,7 +45,7 @@ def extrair_blocos(linhas):
     blocos = []
     bloco = []
     for linha in linhas:
-        if re.match(r'^(Rua|Avenida|Av\.|Travessa|Alameda|Estrada)\b', linha, re.IGNORECASE):
+        if re.match(r'^(Rua|Avenida|Av\.|Travessa|Alameda|Estrada|\d+)\b', linha, re.IGNORECASE):
             if bloco:
                 blocos.append(bloco)
             bloco = [linha]
@@ -89,13 +89,24 @@ def processar_blocos(blocos):
         estado = ""
         pacotes = ""
 
-        match_parada = re.search(r'ETIQUETA\s+[#\-]?[A-Z]{2,3}[-\s]?(\d{1,4})', texto_bloco, re.IGNORECASE)
-        if not match_parada:
-            match_parada = re.search(r'Parada\s*(\d{1,4})', texto_bloco, re.IGNORECASE)
-        parada_num = match_parada.group(1) if match_parada else None
-        if parada_num:
+        # 1. Captura número da parada no início
+        match_inicio = re.match(r'^\s*(\d{1,3})\b', bloco[0])
+        if match_inicio:
+            parada_num = match_inicio.group(1)
             parada = f"Parada {parada_num}"
+        else:
+            parada_num = None
 
+        # 2. Fallback: captura parada pelo texto
+        if not parada:
+            match_parada = re.search(r'ETIQUETA\s+[#\-]?[A-Z]{2,3}[-\s]?(\d{1,4})', texto_bloco, re.IGNORECASE)
+            if not match_parada:
+                match_parada = re.search(r'Parada\s*(\d{1,4})', texto_bloco, re.IGNORECASE)
+            parada_num = match_parada.group(1) if match_parada else None
+            if parada_num:
+                parada = f"Parada {parada_num}"
+
+        # 3. Captura CEP
         match_cep = re.search(r'\b(\d{5})[-\s]?(\d{3})\b', texto_bloco)
         if match_cep:
             cep_raw = match_cep.group(1) + match_cep.group(2)
@@ -107,19 +118,19 @@ def processar_blocos(blocos):
                 cidade = via["Cidade"]
                 estado = via["Estado"]
 
-        if not parada and not cep:
-            continue
-
+        # 4. Logradouro
         if not logradouro and bloco:
             primeira_linha = bloco[0]
-            match_log_num = re.match(r'^(Rua|Avenida|Av\.|Travessa|Alameda|Estrada)\b.*', primeira_linha, re.IGNORECASE)
+            match_log_num = re.match(r'^(?:\d{1,3}\s+)?(Rua|Avenida|Av\.|Travessa|Alameda|Estrada)\b.*', primeira_linha, re.IGNORECASE)
             if match_log_num:
                 logradouro = primeira_linha.strip()
 
+        # 5. Número residencial
         numero = extrair_numero_residencial(texto_bloco, parada_num=parada_num)
         if not numero:
             numero = "S/N"
 
+        # 6. Pacotes
         match_pac = re.search(r'(\d+)\s+(pacote|pacotes|unidade|unidades)', texto_bloco, re.IGNORECASE)
         if match_pac:
             qtd = match_pac.group(1)
@@ -146,7 +157,6 @@ def ordenar_por_parada(df):
     return df.sort_values(by='Parada', key=lambda col: col.map(extrair_num))
 
 # === Streamlit interface ===
-
 st.title("Extração de Dados OCR - Rotas")
 
 uploaded_files = st.file_uploader("Selecione as imagens da rota", type=["jpg", "jpeg", "png", "webp", "tiff", "bmp"], accept_multiple_files=True)
@@ -183,4 +193,3 @@ if uploaded_files:
         )
 else:
     st.info("Por favor, faça upload das imagens para iniciar a extração.")
-
