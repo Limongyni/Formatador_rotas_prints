@@ -183,3 +183,4 @@ if uploaded_files:
         )
 else:
     st.info("Por favor, faça upload das imagens para iniciar a extração.")
+
