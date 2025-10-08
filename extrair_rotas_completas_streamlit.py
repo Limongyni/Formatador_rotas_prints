@@ -52,30 +52,10 @@ def google_vision_ocr(file_bytes):
         return ""
 
 # -----------------------------
-# CONFIGURAÇÃO DE SEPARADORES
+# SEPARADORES PADRÃO
 # -----------------------------
-st.sidebar.subheader("Configuração de Separadores (hífens)")
-sep_opcoes = {
-    "Hífen (-)": "-",
-    "Underline (_)": "_",
-    "Ponto (.)": ".",
-    "En dash (–)": "\u2013",
-    "Em dash (—)": "\u2014",
-    "Non-breaking hyphen (-)": "\u2011",
-}
-
-sep_escolhidos = st.sidebar.multiselect(
-    "Escolha um ou mais separadores usados antes do número da parada:",
-    options=list(sep_opcoes.keys()),
-    default=list(sep_opcoes.keys())  # todos ativos por padrão
-)
-
-if sep_escolhidos:
-    SEPARADORES_ATIVOS = ''.join(sep_opcoes[opt] for opt in sep_escolhidos)
-else:
-    SEPARADORES_ATIVOS = "-_.\u2013\u2014\u2011"
-
-st.sidebar.caption(f"Separadores ativos: `{SEPARADORES_ATIVOS}`")
+# Usamos todos os tipos possíveis de hífen e separadores
+SEPARADORES_ATIVOS = "-_.\u2013\u2014\u2011"
 
 # -----------------------------
 # EXTRAÇÃO DE PARADA
@@ -84,7 +64,6 @@ def extrair_parada_via_etiqueta(texto_bloco):
     """
     Extrai número da parada a partir de etiquetas como:
     NX1234_5, NX1234-5, ETIQUETA 02 1234-5, ETIQUETA #DN-3, etc.
-    Usa separadores configuráveis na interface.
     """
     if not texto_bloco:
         return None
@@ -266,7 +245,8 @@ def ordenar_por_parada(df):
 # -----------------------------
 # INTERFACE STREAMLIT
 # -----------------------------
-st.title("Extração de Dados OCR - Rotas (Etiqueta -> Parada)")
+st.title("Extração de Dados OCR - Rotas (Etiqueta → Parada)")
+st.caption("O app extrai automaticamente as informações de etiquetas OCR e organiza as rotas no formato Excel.")
 
 debug = st.sidebar.checkbox("Modo debug (mostrar detalhes por bloco)", False)
 
@@ -299,6 +279,10 @@ if uploaded_files:
             if c not in df_final.columns:
                 df_final[c] = ""
         df_final = df_final[col_order]
+
+        # ⚠️ Alerta de paradas vazias
+        if df_final['Parada'].isna().any() or (df_final['Parada'] == "").any():
+            st.warning("⚠️ Foram encontradas **paradas em branco**. Por favor, insira manualmente o número da parada antes de salvar o arquivo para garantir que o Excel fique completo.")
 
         st.success("✅ Dados extraídos:")
         st.dataframe(df_final)
