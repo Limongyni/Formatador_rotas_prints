@@ -9,8 +9,6 @@ import os
 # -----------------------------
 # CONFIGURAÇÃO (Cloud Vision)
 # -----------------------------
-# Recomendo setar a chave como variável de ambiente:
-# export CLOUD_VISION_API_KEY="SUA_CHAVE_AQUI"
 CLOUD_VISION_API_KEY = os.getenv("CLOUD_VISION_API_KEY", "AIzaSyBvn-tuocpPKF02OH_UaTsM5DE8_d6Ddwo")
 VISION_URL = f"https://vision.googleapis.com/v1/images:annotate?key={CLOUD_VISION_API_KEY}"
 
@@ -18,9 +16,6 @@ VISION_URL = f"https://vision.googleapis.com/v1/images:annotate?key={CLOUD_VISIO
 # Função OCR - Google Cloud Vision
 # -----------------------------
 def google_vision_ocr(file_bytes):
-    """
-    Chama Cloud Vision (TEXT_DETECTION). Retorna texto ou "" em caso de erro.
-    """
     if not CLOUD_VISION_API_KEY:
         st.error("Chave da Cloud Vision não encontrada. Configure CLOUD_VISION_API_KEY.")
         return ""
@@ -41,12 +36,10 @@ def google_vision_ocr(file_bytes):
             st.text(resp.text)
             return ""
         data = resp.json()
-        # verificar erro na resposta
         if "error" in data.get("responses", [{}])[0]:
             msg = data["responses"][0]["error"].get("message", "Erro desconhecido.")
             st.error(f"❌ Erro da Vision API: {msg}")
             return ""
-        # prioriza fullTextAnnotation
         annotations = data["responses"][0].get("fullTextAnnotation")
         if annotations and "text" in annotations:
             return annotations["text"]
@@ -64,64 +57,63 @@ def google_vision_ocr(file_bytes):
 def extrair_parada_via_etiqueta(texto_bloco):
     """
     Extrai número da parada a partir de etiquetas do tipo:
-    - 'Etiqueta ## NX1234_5' -> retorna '5'
-    aceita variações de espaços/hífens/pontos e 'N X' ou 'NX'
+    - 'Etiqueta ## NX1234_5' ou 'NX1234-5' -> retorna '5'
+    aceita variações de espaços, hífens, pontos ou underscores.
     """
     if not texto_bloco:
         return None
     t = texto_bloco.upper()
 
     # 1) Padrão preferencial: NX <nums> <sep> <PARADA>
-    # ex: NX1234_5  ou N X 1234-5
+    # ex: NX1234_5, NX1234-5, NX1234.5
     pat_nx = re.compile(r'(?:N\s*X|NX)\s*[:\-]?\s*(\d{1,12})\s*[_\-\.\s]+\s*(\d{1,4})', re.IGNORECASE)
     m = pat_nx.search(t)
     if m:
-        return m.group(2).lstrip("0") or m.group(2)  # remove zeros à esquerda se houver
+        return m.group(2).lstrip("0") or m.group(2)
 
-    # 2) Padrão com a palavra ETIQUETA antes: busca números com underscore/hífem próximos
-    # ex: ETIQUETA 02 NX1234_5  ou ETIQUETA 02 1234_5
-    pat_etq_nx = re.compile(r'(?:ETIQUETA|ETIQ|ETI)\b[^\d\n]{0,40}(?:N\s*X|NX)?\s*[:\-]?\s*(\d{1,12})\s*[_\-\.\s]+\s*(\d{1,4})', re.IGNORECASE)
+    # 2) Padrão com a palavra ETIQUETA antes
+    pat_etq_nx = re.compile(
+        r'(?:ETIQUETA|ETIQ|ETI)\b[^\d\n]{0,40}(?:N\s*X|NX)?\s*[:\-]?\s*(\d{1,12})\s*[_\-\.\s]+\s*(\d{1,4})',
+        re.IGNORECASE
+    )
     m2 = pat_etq_nx.search(t)
     if m2:
         return m2.group(2).lstrip("0") or m2.group(2)
 
-    # 3) Caso OCR tenha removido NX, procurar ETIQUETA ... <alguns digitos> _ <parada>
-    pat_etq_sep = re.compile(r'(?:ETIQUETA|ETIQ|ETI)\b.{0,40}?(\d{1,12})\s*[_\-\.\s]+\s*(\d{1,4})', re.IGNORECASE)
+    # 3) Caso OCR tenha removido NX
+    pat_etq_sep = re.compile(
+        r'(?:ETIQUETA|ETIQ|ETI)\b.{0,40}?(\d{1,12})\s*[_\-\.\s]+\s*(\d{1,4})',
+        re.IGNORECASE
+    )
     m3 = pat_etq_sep.search(t)
     if m3:
         return m3.group(2).lstrip("0") or m3.group(2)
 
-    # 4) fallback: procurar 'NX\d+[_\-\.\s]\d+' em qualquer ponto
+    # 4) fallback: NX\d+[_\-\.\s]\d+
     m4 = re.search(r'NX\d+[_\-\.\s](\d{1,4})', t, re.IGNORECASE)
     if m4:
         return m4.group(1).lstrip("0") or m4.group(1)
 
-    # Nenhuma etiqueta encontrada
     return None
 
+
 def extrair_parada_por_palavra(texto_bloco):
-    """
-    Fallback: extrai 'Parada X' caso haja a palavra PARADA no bloco.
-    Só rodamos isso SE não foi encontrada etiqueta (regra do pedido).
-    """
     if not texto_bloco:
         return None
     t = texto_bloco.upper()
     m = re.search(r'\bPARADA\b[\s:\-]*?(\d{1,4})', t, re.IGNORECASE)
     if m:
         return m.group(1).lstrip("0") or m.group(1)
-    # formatos compactos tipo "PARADA12"
     m2 = re.search(r'PARADA\s*?(\d{1,4})', t, re.IGNORECASE)
     if m2:
         return m2.group(1).lstrip("0") or m2.group(1)
-    # P. 12 ou P 12
     m3 = re.search(r'\bP\.?\s*(\d{1,4})\b', t)
     if m3:
         return m3.group(1).lstrip("0") or m3.group(1)
     return None
 
 # -----------------------------
-# Outras funções de parsing (endereços / pacotes)
+# Outras funções de parsing
 # -----------------------------
 def consultar_viacep(cep):
     try:
@@ -174,17 +166,13 @@ def processar_blocos(blocos, debug=False):
     resultados = []
     for i, bloco in enumerate(blocos):
         texto_bloco = " ".join(bloco)
-        # 1) tenta extrair via etiqueta (regra principal)
         parada_num = extrair_parada_via_etiqueta(texto_bloco)
         metodo = "etiqueta"
-        # 2) se não achou via etiqueta, tenta a palavra "Parada" como fallback
         if not parada_num:
             parada_num = extrair_parada_por_palavra(texto_bloco)
             metodo = "palavra" if parada_num else None
 
         parada_str = f"Parada {parada_num}" if parada_num else ""
-
-        # Extrair CEP e endereço via viacep quando possível
         cep = ""
         logradouro = ""
         bairro = ""
@@ -202,24 +190,20 @@ def processar_blocos(blocos, debug=False):
                 cidade = via["Cidade"]
                 estado = via["Estado"]
 
-        # se não tiver logradouro, tenta primeira linha do bloco
         if not logradouro and bloco:
             primeira = bloco[0].strip()
             if re.match(r'^(Rua|Avenida|Av\.|Travessa|Alameda|Estrada)\b', primeira, re.IGNORECASE):
                 logradouro = primeira
 
-        # número residencial
         numero = extrair_numero_residencial(texto_bloco, parada_num=parada_num)
         numero = numero or "S/N"
 
-        # pacotes
         pacotes = ""
         match_pac = re.search(r'(\d+)\s+(pacote|pacotes|unidade|unidades)', texto_bloco, re.IGNORECASE)
         if match_pac:
             qtd = match_pac.group(1)
             pacotes = f"{qtd} {'pacote' if qtd == '1' else 'pacotes'}"
 
-        # Só inclui se existir parada (via etiqueta ou fallback) ou CEP (mesma lógica anterior)
         if parada_str or cep:
             resultados.append({
                 "Parada": parada_str,
@@ -280,7 +264,6 @@ if uploaded_files:
     if df_geral:
         df_final = pd.concat(df_geral, ignore_index=True)
         df_final = ordenar_por_parada(df_final)
-        # garantir ordem e colunas do arquivo modelo
         col_order = ['Parada','Address Line','Secondary Address Line','City','State','Zip Code','Total de Pacotes']
         for c in col_order:
             if c not in df_final.columns:
@@ -290,7 +273,6 @@ if uploaded_files:
         st.success("✅ Dados extraídos:")
         st.dataframe(df_final)
 
-        # download excel
         buffer = BytesIO()
         df_final.to_excel(buffer, index=False)
         buffer.seek(0)
