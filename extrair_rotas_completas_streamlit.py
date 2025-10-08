@@ -9,7 +9,7 @@ import os
 # -----------------------------
 # CONFIGURAÇÃO (Cloud Vision)
 # -----------------------------
-CLOUD_VISION_API_KEY = os.getenv("CLOUD_VISION_API_KEY", "")
+CLOUD_VISION_API_KEY = os.getenv("CLOUD_VISION_API_KEY", "AIzaSyBvn-tuocpPKF02OH_UaTsM5DE8_d6Ddwo")
 VISION_URL = f"https://vision.googleapis.com/v1/images:annotate?key={CLOUD_VISION_API_KEY}"
 
 # -----------------------------
@@ -268,3 +268,4 @@ if uploaded_files:
         st.warning("Nenhum dado extraído das imagens enviadas.")
 else:
     st.info("Envie as imagens das rotas para iniciar a extração.")
+
