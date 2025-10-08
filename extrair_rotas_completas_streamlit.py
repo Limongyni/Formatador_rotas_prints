@@ -57,45 +57,64 @@ def google_vision_ocr(file_bytes):
 def extrair_parada_via_etiqueta(texto_bloco):
     """
     Extrai número da parada a partir de etiquetas do tipo:
-    - 'Etiqueta ## NX1234_5' ou 'NX1234-5' -> retorna '5'
-    aceita variações de espaços, hífens, pontos ou underscores.
+    exemplos aceitos: NX1234_5, NX1234-5, NX1234.5, NX1234–5 (unicode dash), ETIQUETA 02 1234-5, etc.
+    A função agora:
+      - trata vários hífens unicode,
+      - prefere separadores 'dash-like' (hyphen/underscore/dot/unicode dashes),
+      - quando existir 'ETIQUETA', busca apenas depois da palavra e escolhe o último par numérico.
     """
     if not texto_bloco:
         return None
+
     t = texto_bloco.upper()
 
-    # 1) Padrão preferencial: NX <nums> <sep> <PARADA>
-    # ex: NX1234_5, NX1234-5, NX1234.5
-    pat_nx = re.compile(r'(?:N\s*X|NX)\s*[:\-]?\s*(\d{1,12})\s*[_\-\.\s]+\s*(\d{1,4})', re.IGNORECASE)
+    # caracteres de dash unicode comuns (alguns OCRs usam esses em vez do '-')
+    dash_codes = ['\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212']
+    # classe com todos os separadores (inclui \s)
+    sep_all = '_\\-.\\s' + ''.join(dash_codes)
+    # classe preferencial: dash-like (não inclui \s para evitar casar espaços antes de hífen real)
+    sep_dash = '_\\-.' + ''.join(dash_codes)
+
+    # 1) ancorado em NX (padrão preferencial)
+    pat_nx = re.compile(r'(?:N\s*X|NX)\s*[:\-]?\s*(\d{1,12})\s*[' + sep_all + r']+\s*(\d{1,4})', re.IGNORECASE)
     m = pat_nx.search(t)
     if m:
         return m.group(2).lstrip("0") or m.group(2)
 
-    # 2) Padrão com a palavra ETIQUETA antes
-    pat_etq_nx = re.compile(
-        r'(?:ETIQUETA|ETIQ|ETI)\b[^\d\n]{0,40}(?:N\s*X|NX)?\s*[:\-]?\s*(\d{1,12})\s*[_\-\.\s]+\s*(\d{1,4})',
-        re.IGNORECASE
-    )
-    m2 = pat_etq_nx.search(t)
-    if m2:
-        return m2.group(2).lstrip("0") or m2.group(2)
+    # padrões para pares numéricos (prefira dash-like, depois qualquer separador)
+    pair_dash_pat = re.compile(r'(\d{1,12})\s*[' + sep_dash + r']+\s*(\d{1,4})', re.IGNORECASE)
+    pair_any_pat = re.compile(r'(\d{1,12})\s*[' + sep_all + r']+\s*(\d{1,4})', re.IGNORECASE)
 
-    # 3) Caso OCR tenha removido NX
-    pat_etq_sep = re.compile(
-        r'(?:ETIQUETA|ETIQ|ETI)\b.{0,40}?(\d{1,12})\s*[_\-\.\s]+\s*(\d{1,4})',
-        re.IGNORECASE
-    )
-    m3 = pat_etq_sep.search(t)
-    if m3:
-        return m3.group(2).lstrip("0") or m3.group(2)
+    # 2) se tiver ETIQUETA (ou variações), busca depois dela e prefere dash-like matches
+    if 'ETIQUETA' in t or 'ETIQ' in t or 'ETI' in t:
+        pos = max((t.rfind(k) for k in ['ETIQUETA', 'ETIQ', 'ETI']))
+        sub = t[pos:]
+        dash_matches = pair_dash_pat.findall(sub)
+        if dash_matches:
+            last = dash_matches[-1]
+            return last[1].lstrip("0") or last[1]
+        any_matches = pair_any_pat.findall(sub)
+        if any_matches:
+            last = any_matches[-1]
+            return last[1].lstrip("0") or last[1]
 
-    # 4) fallback: NX\d+[_\-\.\s]\d+
-    m4 = re.search(r'NX\d+[_\-\.\s](\d{1,4})', t, re.IGNORECASE)
+    # 3) procurar em todo o texto: prefira dash-like e depois qualquer separador
+    dash_matches_all = pair_dash_pat.findall(t)
+    if dash_matches_all:
+        last = dash_matches_all[-1]
+        return last[1].lstrip("0") or last[1]
+    any_matches_all = pair_any_pat.findall(t)
+    if any_matches_all:
+        last = any_matches_all[-1]
+        return last[1].lstrip("0") or last[1]
+
+    # 4) fallback: NX seguido de separador e parada
+    pat_fallback = re.compile(r'NX\d+[' + sep_all + r'](\d{1,4})', re.IGNORECASE)
+    m4 = pat_fallback.search(t)
     if m4:
         return m4.group(1).lstrip("0") or m4.group(1)
 
     return None
-
 
 def extrair_parada_por_palavra(texto_bloco):
     if not texto_bloco:
