@@ -3,105 +3,32 @@ import requests
 import re
 import pandas as pd
 from io import BytesIO
-import base64
-import os
 
-# -----------------------------
-# CONFIGURAÇÃO (Cloud Vision)
-# -----------------------------
-CLOUD_VISION_API_KEY = os.getenv("CLOUD_VISION_API_KEY", "AIzaSyBvn-tuocpPKF02OH_UaTsM5DE8_d6Ddwo")
-VISION_URL = f"https://vision.googleapis.com/v1/images:annotate?key={CLOUD_VISION_API_KEY}"
+GOOGLE_VISION_API_KEY = "AIzaSyBvn-tuocpPKF02OH_UaTsM5DE8_d6Ddwo"
 
-# -----------------------------
-# OCR - Google Cloud Vision
-# -----------------------------
-def google_vision_ocr(file_bytes):
-    if not CLOUD_VISION_API_KEY:
-        st.error("Chave da Cloud Vision não encontrada. Configure CLOUD_VISION_API_KEY.")
+def google_vision_ocr(image_bytes):
+    """Usa Google Cloud Vision API para extrair texto de uma imagem."""
+    url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}"
+    payload = {
+        "requests": [{
+            "image": {"content": image_bytes.decode("ISO-8859-1")},
+            "features": [{"type": "TEXT_DETECTION"}]
+        }]
+    }
+    response = requests.post(url, json=payload)
+    if response.status_code != 200:
+        st.error(f"❌ Erro HTTP {response.status_code} ao chamar Vision API.")
         return ""
+    result = response.json()
     try:
-        img_b64 = base64.b64encode(file_bytes).decode("utf-8")
-        payload = {
-            "requests": [
-                {
-                    "image": {"content": img_b64},
-                    "features": [{"type": "TEXT_DETECTION"}],
-                    "imageContext": {"languageHints": ["pt"]}
-                }
-            ]
-        }
-        resp = requests.post(VISION_URL, json=payload, timeout=60)
-        if resp.status_code != 200:
-            st.error(f"❌ Erro HTTP {resp.status_code} ao chamar Vision API.")
-            st.text(resp.text)
-            return ""
-        data = resp.json()
-        if "error" in data.get("responses", [{}])[0]:
-            msg = data["responses"][0]["error"].get("message", "Erro desconhecido.")
-            st.error(f"❌ Erro da Vision API: {msg}")
-            return ""
-        annotations = data["responses"][0].get("fullTextAnnotation")
-        if annotations and "text" in annotations:
-            return annotations["text"]
-        texts = data["responses"][0].get("textAnnotations")
-        if texts and len(texts) > 0:
-            return texts[0].get("description", "")
-        return ""
-    except Exception as e:
-        st.error(f"❌ Falha ao chamar Vision API: {e}")
+        return result["responses"][0]["fullTextAnnotation"]["text"]
+    except KeyError:
         return ""
 
-# -----------------------------
-# Regras de extração da PARADA
-# -----------------------------
-def extrair_parada_via_etiqueta(texto_bloco):
-    """
-    Extrai número da parada com base em padrões NX + número + separador + parada.
-    Aceita múltiplas variações: espaços, hífens, underscores e ordem flexível.
-    """
-    if not texto_bloco:
-        return None
-    t = texto_bloco.upper()
-
-    # Padrão 1: ETIQUETA (opcional nº) NX1234_05 / NX1234-05 / NX 1234 05
-    padrao_geral = re.compile(
-        r'(?:ETIQUETA\s*\d{0,3}\s*)?(?:N\s*X|NX)\s*[-:]?\s*(\d{1,10})\s*[_\-\s\.]?\s*(\d{1,4})\b',
-        re.IGNORECASE
-    )
-    m = padrao_geral.search(t)
-    if m:
-        return m.group(2).lstrip("0") or m.group(2)
-
-    # Padrão 2: ETIQUETA <num> NX 1234 - 05 (variação invertida)
-    padrao_alt = re.compile(
-        r'(?:ETIQUETA\s*\d{1,3}\s*)?(?:N\s*X|NX)?\s*[-:]?\s*(\d{1,10})\s*[-_\s\.]\s*(\d{1,4})\b',
-        re.IGNORECASE
-    )
-    m2 = padrao_alt.search(t)
-    if m2:
-        return m2.group(2).lstrip("0") or m2.group(2)
-
-    return None
-
-
-def extrair_parada_por_palavra(texto_bloco):
-    if not texto_bloco:
-        return None
-    t = texto_bloco.upper()
-    m = re.search(r'\bPARADA\b[\s:\-]*?(\d{1,4})', t)
-    if m:
-        return m.group(1).lstrip("0") or m.group(1)
-    m2 = re.search(r'PARADA\s*(\d{1,4})', t)
-    if m2:
-        return m2.group(1).lstrip("0") or m2.group(1)
-    return None
-
-# -----------------------------
-# Extração de endereço e CEP
-# -----------------------------
 def consultar_viacep(cep):
+    url = f"https://viacep.com.br/ws/{cep}/json/"
     try:
-        resp = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=10)
+        resp = requests.get(url)
         if resp.status_code == 200:
             data = resp.json()
             if "erro" not in data:
@@ -110,9 +37,9 @@ def consultar_viacep(cep):
                     "Logradouro": data.get("logradouro", ""),
                     "Bairro": data.get("bairro", ""),
                     "Cidade": data.get("localidade", ""),
-                    "Estado": "São Paulo" if data.get("uf", "") == "SP" else data.get("uf", "")
+                    "Estado": data.get("uf", "")
                 }
-    except Exception:
+    except:
         pass
     return {}
 
@@ -133,139 +60,104 @@ def extrair_blocos(linhas):
         blocos.append(bloco)
     return blocos
 
-def extrair_numero_residencial(linha, parada_num=None):
-    possiveis = re.findall(r'\b\d{1,5}\b', linha)
-    for n in possiveis:
-        if parada_num and n == str(parada_num):
-            continue
-        if re.fullmatch(r'\d{8}', n):
-            continue
-        return n
-    return None
+def extrair_numero_residencial(linha):
+    nums = re.findall(r'\b\d{1,5}\b', linha)
+    for num in nums:
+        if not re.match(r'\d{5}-\d{3}|\d{8}', num):
+            return num
+    return "S/N"
 
-# -----------------------------
-# Processamento dos blocos
-# -----------------------------
-def processar_blocos(blocos, debug=False):
+def processar_blocos(blocos):
     resultados = []
-    for i, bloco in enumerate(blocos):
+    for bloco in blocos:
         texto_bloco = " ".join(bloco)
-        parada_num = extrair_parada_via_etiqueta(texto_bloco) or extrair_parada_por_palavra(texto_bloco)
-        parada_str = f"Parada {parada_num}" if parada_num else ""
 
-        cep, logradouro, bairro, cidade, estado, numero, pacotes = "", "", "", "", "", "", ""
+        # 🔍 Capturar número da parada com regex flexível
+        match_parada = re.search(
+            r'ETIQUETA(?:\s+\d+)?\s*(?:NX|N\s*X)?\s*[-\s]*\d+\s*[_\-,\s]+\s*(\d{1,3})',
+            texto_bloco, re.IGNORECASE
+        )
+        parada = f"Parada {match_parada.group(1)}" if match_parada else ""
 
+        # 📦 CEP e endereço
         match_cep = re.search(r'\b(\d{5})[-\s]?(\d{3})\b', texto_bloco)
+        cep, logradouro, bairro, cidade, estado = "", "", "", "", ""
         if match_cep:
             cep_raw = match_cep.group(1) + match_cep.group(2)
             via = consultar_viacep(cep_raw)
             if via:
-                cep, logradouro, bairro, cidade, estado = via.values()
+                cep = via["CEP"]
+                logradouro = via["Logradouro"]
+                bairro = via["Bairro"]
+                cidade = via["Cidade"]
+                estado = via["Estado"]
 
         if not logradouro and bloco:
-            primeira = bloco[0].strip()
-            if re.match(r'^(Rua|Avenida|Av\.|Travessa|Alameda|Estrada)\b', primeira, re.IGNORECASE):
-                logradouro = primeira
+            logradouro = bloco[0].strip()
 
-        numero = extrair_numero_residencial(texto_bloco, parada_num) or "S/N"
-
+        numero = extrair_numero_residencial(texto_bloco)
         match_pac = re.search(r'(\d+)\s+(pacote|pacotes|unidade|unidades)', texto_bloco, re.IGNORECASE)
-        if match_pac:
-            qtd = match_pac.group(1)
-            pacotes = f"{qtd} {'pacote' if qtd == '1' else 'pacotes'}"
+        pacotes = f"{match_pac.group(1)} pacotes" if match_pac else ""
 
-        if parada_str or cep:
-            resultados.append({
-                "Parada": parada_str,
-                "Address Line": f"{logradouro} {numero}".strip(),
-                "Secondary Address Line": bairro,
-                "City": cidade,
-                "State": estado,
-                "Zip Code": cep,
-                "Total de Pacotes": pacotes
-            })
-
-        if debug:
-            st.write(f"--- Bloco {i} ---")
-            st.write("Texto:", texto_bloco)
-            st.write("→ Parada:", parada_str)
-
+        resultados.append({
+            "Parada": parada,
+            "Address Line": f"{logradouro} {numero}".strip(),
+            "Secondary Address Line": bairro,
+            "City": cidade,
+            "State": estado,
+            "Zip Code": cep,
+            "Total de Pacotes": pacotes
+        })
     return pd.DataFrame(resultados)
 
-# -----------------------------
-# Ordenar e validar duplicidades
-# -----------------------------
 def ordenar_por_parada(df):
     def extrair_num(parada):
-        if isinstance(parada, str) and parada:
-            m = re.search(r'Parada\s*(\d+)', parada)
-            return int(m.group(1)) if m else float('inf')
+        if isinstance(parada, str):
+            match = re.search(r'(\d+)', parada)
+            return int(match.group(1)) if match else float('inf')
         return float('inf')
     return df.sort_values(by='Parada', key=lambda col: col.map(extrair_num))
 
-def remover_duplicatas(df):
-    cols_chave = ['Address Line', 'Secondary Address Line', 'City', 'Zip Code']
-    return df.drop_duplicates(subset=cols_chave, keep='first')
+# === Streamlit Interface ===
+st.title("🧾 Extração de Dados OCR - Rotas")
 
-# -----------------------------
-# INTERFACE STREAMLIT
-# -----------------------------
-st.title("📦 Extração OCR de Rotas (Etiqueta → Parada)")
-
-debug = st.sidebar.checkbox("Modo debug (mostrar detalhes por bloco)", False)
-uploaded_files = st.file_uploader(
-    "Selecione as imagens das rotas",
-    type=["jpg", "jpeg", "png", "webp", "tiff", "bmp"],
-    accept_multiple_files=True
-)
+uploaded_files = st.file_uploader("Selecione as imagens", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
 if uploaded_files:
-    df_geral = []
-    for uploaded_file in uploaded_files:
-        st.write(f"📸 Processando: {uploaded_file.name}")
-        bytes_imagem = uploaded_file.read()
-        texto = google_vision_ocr(bytes_imagem)
-        if not texto:
-            st.warning(f"⚠️ Nenhum texto extraído de {uploaded_file.name}.")
-            continue
+    dfs = []
+    for img in uploaded_files:
+        st.write(f"📸 Processando: {img.name}")
+        texto = google_vision_ocr(img.read().encode("ISO-8859-1"))
         linhas = [l.strip() for l in texto.splitlines() if l.strip()]
         blocos = extrair_blocos(linhas)
-        df = processar_blocos(blocos, debug=debug)
-        if not df.empty:
-            df_geral.append(df)
+        df = processar_blocos(blocos)
+        dfs.append(df)
 
-    if df_geral:
-        df_final = pd.concat(df_geral, ignore_index=True)
-        df_final = remover_duplicatas(df_final)
+    if dfs:
+        df_final = pd.concat(dfs, ignore_index=True)
         df_final = ordenar_por_parada(df_final)
 
-        col_order = ['Parada','Address Line','Secondary Address Line','City','State','Zip Code','Total de Pacotes']
-        for c in col_order:
-            if c not in df_final.columns:
-                df_final[c] = ""
-        df_final = df_final[col_order]
+        # 🔁 Remover duplicatas
+        df_final.drop_duplicates(subset=["Address Line", "Secondary Address Line", "City", "Zip Code"], inplace=True)
 
-        st.success("✅ Dados extraídos com sucesso!")
+        # ⚠️ Mostrar endereços sem parada
+        sem_parada = df_final[df_final["Parada"].astype(str).str.strip() == ""]
+        if not sem_parada.empty:
+            st.warning("⚠️ Os seguintes endereços não tiveram parada captada:")
+            st.dataframe(sem_parada[["Address Line", "Secondary Address Line", "City", "Zip Code"]])
+
+        st.success("✅ Dados extraídos:")
         st.dataframe(df_final)
 
-        # ⚠️ Avisar endereços sem parada
-        faltando_parada = df_final[df_final['Parada'] == ""]
-        if not faltando_parada.empty:
-            st.warning("⚠️ Endereços sem parada detectados:")
-            st.dataframe(faltando_parada[['Address Line','City','Zip Code']])
-
-        # 📥 Botão de download
-        buffer = BytesIO()
-        df_final.to_excel(buffer, index=False)
-        buffer.seek(0)
+        # Exportar Excel
+        output = BytesIO()
+        df_final.to_excel(output, index=False)
+        output.seek(0)
         st.download_button(
-            "📥 Baixar Excel Final",
-            data=buffer,
+            "📥 Baixar Excel",
+            data=output,
             file_name="rotas_extraidas_final.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-    else:
-        st.warning("Nenhum dado extraído das imagens enviadas.")
 else:
-    st.info("Envie as imagens das rotas para iniciar a extração.")
-
+    st.info("Por favor, envie imagens para iniciar a extração.")
