@@ -10,7 +10,7 @@ import os
 # CONFIGURAÇÃO
 # ----------------------------
 # Use a chave que você forneceu. Para segurança recomenda-se usar variável de ambiente.
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyC2vwqj-_8CEZxL-u2FXi8LNvE8tpIC2BE")
+GEMINI_API_KEY = "AIzaSyBvn-tuocpPKF02OH_UaTsM5DE8_d6Ddwo"
 
 # ----------------------------
 # Função OCR usando Google Vision (images:annotate)
@@ -286,3 +286,4 @@ if uploaded_files:
         st.info("Nenhum dado extraído das imagens fornecidas.")
 else:
     st.info("Por favor, faça upload das imagens para iniciar a extração.")
+
