@@ -52,7 +52,7 @@ def google_vision_ocr(file_bytes):
         return ""
 
 # -----------------------------
-# CONFIGURAÇÃO DE SEPARADORES (seleção múltipla)
+# CONFIGURAÇÃO DE SEPARADORES
 # -----------------------------
 st.sidebar.subheader("Configuração de Separadores (hífens)")
 sep_opcoes = {
@@ -70,21 +70,20 @@ sep_escolhidos = st.sidebar.multiselect(
     default=list(sep_opcoes.keys())  # todos ativos por padrão
 )
 
-# Concatena os caracteres selecionados
 if sep_escolhidos:
     SEPARADORES_ATIVOS = ''.join(sep_opcoes[opt] for opt in sep_escolhidos)
 else:
-    SEPARADORES_ATIVOS = "-_.\u2013\u2014\u2011"  # fallback
+    SEPARADORES_ATIVOS = "-_.\u2013\u2014\u2011"
 
 st.sidebar.caption(f"Separadores ativos: `{SEPARADORES_ATIVOS}`")
 
 # -----------------------------
-# Regras de extração da PARADA
+# EXTRAÇÃO DE PARADA
 # -----------------------------
 def extrair_parada_via_etiqueta(texto_bloco):
     """
     Extrai número da parada a partir de etiquetas como:
-    NX1234_5, NX1234-5, NX1234.5, NX1234–5 (unicode dash), ETIQUETA 02 1234-5, etc.
+    NX1234_5, NX1234-5, ETIQUETA 02 1234-5, ETIQUETA #DN-3, etc.
     Usa separadores configuráveis na interface.
     """
     if not texto_bloco:
@@ -93,34 +92,40 @@ def extrair_parada_via_etiqueta(texto_bloco):
     t = texto_bloco.upper()
     sep_class = re.escape(SEPARADORES_ATIVOS)
 
-    # 1) padrão NX <num> <sep> <num>
+    # 1) NX <num> <sep> <num>
     pat_nx = re.compile(
         rf'(?:N\s*X|NX)\s*[:\-]?\s*(\d{{1,12}})\s*[{sep_class}]+\s*(\d{{1,4}})',
         re.IGNORECASE
     )
-    m = pat_nx.search(t)
-    if m:
+    if (m := pat_nx.search(t)):
         return m.group(2).lstrip("0") or m.group(2)
 
-    # 2) padrão ETIQUETA com ou sem NX
+    # 2) ETIQUETA ... com NX
     pat_etq = re.compile(
         rf'(?:ETIQUETA|ETIQ|ETI)\b[^\d\n]{{0,40}}(?:N\s*X|NX)?\s*[:\-]?\s*(\d{{1,12}})\s*[{sep_class}]+\s*(\d{{1,4}})',
         re.IGNORECASE
     )
-    m2 = pat_etq.search(t)
-    if m2:
-        return m2.group(2).lstrip("0") or m2.group(2)
+    if (m := pat_etq.search(t)):
+        return m.group(2).lstrip("0") or m.group(2)
 
-    # 3) fallback NX####-##
+    # 3) Novo padrão: ETIQUETA #DN-3 / DN-3 / DR-5 / DL_4
+    pat_dn = re.compile(
+        rf'(?:ETIQUETA|ETIQ|ETI)?[^\n]{{0,10}}?\b([A-Z]{{1,3}})\s*[{sep_class}]+\s*(\d{{1,4}})\b',
+        re.IGNORECASE
+    )
+    if (m := pat_dn.search(t)):
+        return m.group(2).lstrip("0") or m.group(2)
+
+    # 4) fallback NX####-##
     pat_fallback = re.compile(
         rf'NX\d+[{sep_class}](\d{{1,4}})',
         re.IGNORECASE
     )
-    m3 = pat_fallback.search(t)
-    if m3:
-        return m3.group(1).lstrip("0") or m3.group(1)
+    if (m := pat_fallback.search(t)):
+        return m.group(1).lstrip("0") or m.group(1)
 
     return None
+
 
 def extrair_parada_por_palavra(texto_bloco):
     if not texto_bloco:
@@ -138,7 +143,7 @@ def extrair_parada_por_palavra(texto_bloco):
     return None
 
 # -----------------------------
-# Outras funções auxiliares
+# OUTRAS FUNÇÕES
 # -----------------------------
 def consultar_viacep(cep):
     try:
@@ -259,7 +264,7 @@ def ordenar_por_parada(df):
     return df
 
 # -----------------------------
-# Interface Streamlit
+# INTERFACE STREAMLIT
 # -----------------------------
 st.title("Extração de Dados OCR - Rotas (Etiqueta -> Parada)")
 
