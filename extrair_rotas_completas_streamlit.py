@@ -54,20 +54,14 @@ def google_vision_ocr(file_bytes):
 # -----------------------------
 # SEPARADORES PADRÃO
 # -----------------------------
-# Usamos todos os tipos possíveis de hífen e separadores
 SEPARADORES_ATIVOS = "-_.\u2013\u2014\u2011"
 
 # -----------------------------
 # EXTRAÇÃO DE PARADA
 # -----------------------------
 def extrair_parada_via_etiqueta(texto_bloco):
-    """
-    Extrai número da parada a partir de etiquetas como:
-    NX1234_5, NX1234-5, ETIQUETA 02 1234-5, ETIQUETA #DN-3, etc.
-    """
     if not texto_bloco:
         return None
-
     t = texto_bloco.upper()
     sep_class = re.escape(SEPARADORES_ATIVOS)
 
@@ -104,7 +98,6 @@ def extrair_parada_via_etiqueta(texto_bloco):
         return m.group(1).lstrip("0") or m.group(1)
 
     return None
-
 
 def extrair_parada_por_palavra(texto_bloco):
     if not texto_bloco:
@@ -284,9 +277,19 @@ if uploaded_files:
         if df_final['Parada'].isna().any() or (df_final['Parada'] == "").any():
             st.warning("⚠️ Foram encontradas **paradas em branco**. Por favor, insira manualmente o número da parada antes de salvar o arquivo para garantir que o Excel fique completo.")
 
-        st.success("✅ Dados extraídos:")
+        # 🔍 VERIFICAÇÃO E REMOÇÃO DE DUPLICADOS
+        before = len(df_final)
+        df_final = df_final.drop_duplicates(subset=['Parada', 'Address Line', 'Secondary Address Line', 'City'], keep='first')
+        after = len(df_final)
+        removed = before - after
+
+        if removed > 0:
+            st.warning(f"⚠️ Foram removidas **{removed} entradas duplicadas** (mesma parada ou endereço). Apenas a primeira ocorrência foi mantida.")
+
+        st.success("✅ Dados extraídos e validados:")
         st.dataframe(df_final)
 
+        # Download Excel
         buffer = BytesIO()
         df_final.to_excel(buffer, index=False)
         buffer.seek(0)
