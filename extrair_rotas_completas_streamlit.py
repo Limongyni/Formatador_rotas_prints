@@ -52,67 +52,73 @@ def google_vision_ocr(file_bytes):
         return ""
 
 # -----------------------------
+# CONFIGURAÇÃO DE SEPARADORES (seleção múltipla)
+# -----------------------------
+st.sidebar.subheader("Configuração de Separadores (hífens)")
+sep_opcoes = {
+    "Hífen (-)": "-",
+    "Underline (_)": "_",
+    "Ponto (.)": ".",
+    "En dash (–)": "\u2013",
+    "Em dash (—)": "\u2014",
+    "Non-breaking hyphen (-)": "\u2011",
+}
+
+sep_escolhidos = st.sidebar.multiselect(
+    "Escolha um ou mais separadores usados antes do número da parada:",
+    options=list(sep_opcoes.keys()),
+    default=list(sep_opcoes.keys())  # todos ativos por padrão
+)
+
+# Concatena os caracteres selecionados
+if sep_escolhidos:
+    SEPARADORES_ATIVOS = ''.join(sep_opcoes[opt] for opt in sep_escolhidos)
+else:
+    SEPARADORES_ATIVOS = "-_.\u2013\u2014\u2011"  # fallback
+
+st.sidebar.caption(f"Separadores ativos: `{SEPARADORES_ATIVOS}`")
+
+# -----------------------------
 # Regras de extração da PARADA
 # -----------------------------
 def extrair_parada_via_etiqueta(texto_bloco):
     """
-    Extrai número da parada a partir de etiquetas do tipo:
-    exemplos aceitos: NX1234_5, NX1234-5, NX1234.5, NX1234–5 (unicode dash), ETIQUETA 02 1234-5, etc.
-    A função agora:
-      - trata vários hífens unicode,
-      - prefere separadores 'dash-like' (hyphen/underscore/dot/unicode dashes),
-      - quando existir 'ETIQUETA', busca apenas depois da palavra e escolhe o último par numérico.
+    Extrai número da parada a partir de etiquetas como:
+    NX1234_5, NX1234-5, NX1234.5, NX1234–5 (unicode dash), ETIQUETA 02 1234-5, etc.
+    Usa separadores configuráveis na interface.
     """
     if not texto_bloco:
         return None
 
     t = texto_bloco.upper()
+    sep_class = re.escape(SEPARADORES_ATIVOS)
 
-    # caracteres de dash unicode comuns (alguns OCRs usam esses em vez do '-')
-    dash_codes = ['\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212']
-    # classe com todos os separadores (inclui \s)
-    sep_all = '_\\-.\\s' + ''.join(dash_codes)
-    # classe preferencial: dash-like (não inclui \s para evitar casar espaços antes de hífen real)
-    sep_dash = '_\\-.' + ''.join(dash_codes)
-
-    # 1) ancorado em NX (padrão preferencial)
-    pat_nx = re.compile(r'(?:N\s*X|NX)\s*[:\-]?\s*(\d{1,12})\s*[' + sep_all + r']+\s*(\d{1,4})', re.IGNORECASE)
+    # 1) padrão NX <num> <sep> <num>
+    pat_nx = re.compile(
+        rf'(?:N\s*X|NX)\s*[:\-]?\s*(\d{{1,12}})\s*[{sep_class}]+\s*(\d{{1,4}})',
+        re.IGNORECASE
+    )
     m = pat_nx.search(t)
     if m:
         return m.group(2).lstrip("0") or m.group(2)
 
-    # padrões para pares numéricos (prefira dash-like, depois qualquer separador)
-    pair_dash_pat = re.compile(r'(\d{1,12})\s*[' + sep_dash + r']+\s*(\d{1,4})', re.IGNORECASE)
-    pair_any_pat = re.compile(r'(\d{1,12})\s*[' + sep_all + r']+\s*(\d{1,4})', re.IGNORECASE)
+    # 2) padrão ETIQUETA com ou sem NX
+    pat_etq = re.compile(
+        rf'(?:ETIQUETA|ETIQ|ETI)\b[^\d\n]{{0,40}}(?:N\s*X|NX)?\s*[:\-]?\s*(\d{{1,12}})\s*[{sep_class}]+\s*(\d{{1,4}})',
+        re.IGNORECASE
+    )
+    m2 = pat_etq.search(t)
+    if m2:
+        return m2.group(2).lstrip("0") or m2.group(2)
 
-    # 2) se tiver ETIQUETA (ou variações), busca depois dela e prefere dash-like matches
-    if 'ETIQUETA' in t or 'ETIQ' in t or 'ETI' in t:
-        pos = max((t.rfind(k) for k in ['ETIQUETA', 'ETIQ', 'ETI']))
-        sub = t[pos:]
-        dash_matches = pair_dash_pat.findall(sub)
-        if dash_matches:
-            last = dash_matches[-1]
-            return last[1].lstrip("0") or last[1]
-        any_matches = pair_any_pat.findall(sub)
-        if any_matches:
-            last = any_matches[-1]
-            return last[1].lstrip("0") or last[1]
-
-    # 3) procurar em todo o texto: prefira dash-like e depois qualquer separador
-    dash_matches_all = pair_dash_pat.findall(t)
-    if dash_matches_all:
-        last = dash_matches_all[-1]
-        return last[1].lstrip("0") or last[1]
-    any_matches_all = pair_any_pat.findall(t)
-    if any_matches_all:
-        last = any_matches_all[-1]
-        return last[1].lstrip("0") or last[1]
-
-    # 4) fallback: NX seguido de separador e parada
-    pat_fallback = re.compile(r'NX\d+[' + sep_all + r'](\d{1,4})', re.IGNORECASE)
-    m4 = pat_fallback.search(t)
-    if m4:
-        return m4.group(1).lstrip("0") or m4.group(1)
+    # 3) fallback NX####-##
+    pat_fallback = re.compile(
+        rf'NX\d+[{sep_class}](\d{{1,4}})',
+        re.IGNORECASE
+    )
+    m3 = pat_fallback.search(t)
+    if m3:
+        return m3.group(1).lstrip("0") or m3.group(1)
 
     return None
 
@@ -132,7 +138,7 @@ def extrair_parada_por_palavra(texto_bloco):
     return None
 
 # -----------------------------
-# Outras funções de parsing
+# Outras funções auxiliares
 # -----------------------------
 def consultar_viacep(cep):
     try:
